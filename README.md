@@ -58,6 +58,85 @@ The application uses a simple pseudo-random number generator seeded by the user'
 
 The generated numbers are displayed with colorful animations, accompanied by a spectacular fireworks show and celebratory sound effects.
 
+## Deployment with CI/CD
+
+This project uses GitHub Actions to automatically deploy to AWS S3 and CloudFront.
+
+### AWS Setup Requirements
+
+1. **Create an S3 Bucket**:
+   - Sign in to AWS Console
+   - Create a new S3 bucket (e.g., `lucky-lottery-app`)
+   - Enable "Static website hosting" in bucket properties
+   - Set the index document to `index.html`
+   - Configure bucket policy to allow public access:
+     ```json
+     {
+       "Version": "2012-10-17",
+       "Statement": [
+         {
+           "Effect": "Allow",
+           "Principal": "*",
+           "Action": "s3:GetObject",
+           "Resource": "arn:aws:s3:::YOUR-BUCKET-NAME/*"
+         }
+       ]
+     }
+     ```
+
+2. **Set up CloudFront Distribution**:
+   - Create a new CloudFront distribution
+   - Set the S3 bucket as the origin
+   - Configure HTTPS if needed
+   - Under "Error Pages", create a custom error response:
+     - HTTP Error Code: 403 (and another for 404)
+     - Response Page Path: `/index.html`
+     - HTTP Response Code: 200
+
+3. **IAM User for Deployments**:
+   - Create an IAM user with programmatic access
+   - Attach this policy (replace with your actual values):
+     ```json
+     {
+       "Version": "2012-10-17",
+       "Statement": [
+         {
+           "Effect": "Allow",
+           "Action": [
+             "s3:PutObject",
+             "s3:GetObject",
+             "s3:ListBucket",
+             "s3:DeleteObject"
+           ],
+           "Resource": [
+             "arn:aws:s3:::YOUR-BUCKET-NAME/*",
+             "arn:aws:s3:::YOUR-BUCKET-NAME"
+           ]
+         },
+         {
+           "Effect": "Allow",
+           "Action": [
+             "cloudfront:CreateInvalidation"
+           ],
+           "Resource": "arn:aws:cloudfront::YOUR-ACCOUNT-ID:distribution/YOUR-DISTRIBUTION-ID"
+         }
+       ]
+     }
+     ```
+   - Save the Access Key ID and Secret Access Key
+
+### GitHub Repository Setup
+
+Add these secrets to your GitHub repository (Settings → Secrets → Actions):
+
+- `AWS_ACCESS_KEY_ID`: IAM user's access key
+- `AWS_SECRET_ACCESS_KEY`: IAM user's secret key
+- `AWS_REGION`: Region your S3 bucket is in (e.g., `us-east-1`)
+- `S3_BUCKET`: S3 bucket name
+- `CLOUDFRONT_DISTRIBUTION_ID`: CloudFront distribution ID
+
+Once set up, every push to the main branch will automatically deploy your app to AWS.
+
 ## License
 
 MIT
