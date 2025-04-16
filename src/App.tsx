@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Container, Box, Typography, TextField, Button, Paper, Grid,
   ThemeProvider, createTheme, CssBaseline, useMediaQuery
 } from '@mui/material';
+import { getThemeOptions, getBallColors, getFireworksColors, ThemeType } from './themes/themes';
+import ThemeSwitcher from './themes/ThemeSwitcher';
 
 function generateLotteryNumbers(name: string, birthday: string): number[] {
-  // Simple deterministic pseudo-random generator based on input
   let seed = 0;
   for (let i = 0; i < name.length; i++) seed += name.charCodeAt(i);
   for (let i = 0; i < birthday.length; i++) seed += birthday.charCodeAt(i);
@@ -18,55 +19,24 @@ function generateLotteryNumbers(name: string, birthday: string): number[] {
 }
 
 const App: React.FC = () => {
-  // Theme setup with a more vibrant and attractive color palette
   const prefersDarkMode = useMediaQuery('(prefers-color-scheme: dark)');
+  const [currentTheme, setCurrentTheme] = useState<ThemeType>('normal');
+  
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('lotteryTheme');
+    if (savedTheme && ['normal', 'synthwave', 'cyberpunk', 'rainbow'].includes(savedTheme)) {
+      setCurrentTheme(savedTheme as ThemeType);
+    }
+  }, []);
+  
+  const handleThemeChange = (themeName: ThemeType) => {
+    setCurrentTheme(themeName);
+    localStorage.setItem('lotteryTheme', themeName);
+  };
   
   const theme = React.useMemo(
-    () =>
-      createTheme({
-        palette: {
-          mode: prefersDarkMode ? 'dark' : 'light',
-          primary: {
-            main: '#3f51b5', // Indigo color
-          },
-          secondary: {
-            main: '#f50057', // Pink color
-          },
-          background: {
-            default: prefersDarkMode ? '#121212' : '#f5f5f5',
-            paper: prefersDarkMode ? '#1e1e1e' : '#ffffff',
-          },
-        },
-        typography: {
-          fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
-          h4: {
-            fontWeight: 600,
-          },
-          h6: {
-            fontWeight: 500,
-          },
-        },
-        components: {
-          MuiButton: {
-            styleOverrides: {
-              root: {
-                borderRadius: 28,
-                padding: '12px 24px',
-                fontSize: '1rem',
-                textTransform: 'none',
-              },
-            },
-          },
-          MuiPaper: {
-            styleOverrides: {
-              root: {
-                borderRadius: 16,
-              },
-            },
-          },
-        },
-      }),
-    [prefersDarkMode],
+    () => createTheme(getThemeOptions(currentTheme, prefersDarkMode)),
+    [currentTheme, prefersDarkMode],
   );
 
   const [name, setName] = useState('');
@@ -76,25 +46,74 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [showFireworks, setShowFireworks] = useState(false);
   
-  // Create audio contexts for sound effects
+  const ballColors = getBallColors(currentTheme, prefersDarkMode);
+  const fireworksColors = getFireworksColors(currentTheme, prefersDarkMode);
+  
   const playFireworksSound = () => {
     try {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const oscillator = audioContext.createOscillator();
-      const gainNode = audioContext.createGain();
-      
-      oscillator.connect(gainNode);
-      gainNode.connect(audioContext.destination);
-      
-      oscillator.type = 'sine';
-      oscillator.frequency.setValueAtTime(150, audioContext.currentTime);
-      oscillator.frequency.exponentialRampToValueAtTime(40, audioContext.currentTime + 0.4);
-      
-      gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
-      gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.4);
-      
-      oscillator.start();
-      oscillator.stop(audioContext.currentTime + 0.4);
+      for (let i = 0; i < 5; i++) {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        const panner = audioContext.createStereoPanner();
+        const filter = audioContext.createBiquadFilter();
+        
+        oscillator.connect(filter);
+        filter.connect(panner);
+        panner.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.type = ['sine', 'triangle', 'sawtooth', 'square'][Math.floor(Math.random() * 4)] as OscillatorType;
+        const baseFreq = 80 + Math.random() * 120;
+        oscillator.frequency.setValueAtTime(baseFreq * 2, audioContext.currentTime + i * 0.1);
+        oscillator.frequency.exponentialRampToValueAtTime(baseFreq * 0.5, audioContext.currentTime + i * 0.1 + 0.4);
+        
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(800 + Math.random() * 1000, audioContext.currentTime + i * 0.1);
+        filter.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + i * 0.1 + 0.5);
+        filter.Q.value = 5 + Math.random() * 10;
+        
+        panner.pan.setValueAtTime((Math.random() * 2 - 1), audioContext.currentTime + i * 0.1);
+        
+        gainNode.gain.setValueAtTime(0.01, audioContext.currentTime + i * 0.1);
+        gainNode.gain.exponentialRampToValueAtTime(0.1 + Math.random() * 0.15, audioContext.currentTime + i * 0.1 + 0.05);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + i * 0.1 + 0.4 + Math.random() * 0.3);
+        
+        oscillator.start(audioContext.currentTime + i * 0.1);
+        oscillator.stop(audioContext.currentTime + i * 0.1 + 0.8);
+        
+        if (i % 2 === 0) {
+          const noiseLength = 0.2;
+          const bufferSize = audioContext.sampleRate * noiseLength;
+          const noiseBuffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+          const data = noiseBuffer.getChannelData(0);
+          
+          for (let j = 0; j < bufferSize; j++) {
+            data[j] = Math.random() * 2 - 1;
+          }
+          
+          const noise = audioContext.createBufferSource();
+          noise.buffer = noiseBuffer;
+          
+          const noiseFilter = audioContext.createBiquadFilter();
+          const noiseGain = audioContext.createGain();
+          
+          noise.connect(noiseFilter);
+          noiseFilter.connect(noiseGain);
+          noiseGain.connect(audioContext.destination);
+          
+          noiseFilter.type = 'bandpass';
+          noiseFilter.frequency.value = 300 + Math.random() * 1000;
+          noiseFilter.Q.value = 1;
+          
+          noiseGain.gain.setValueAtTime(0, audioContext.currentTime + i * 0.1);
+          noiseGain.gain.linearRampToValueAtTime(0.1 + Math.random() * 0.15, audioContext.currentTime + i * 0.1 + 0.01);
+          noiseGain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + i * 0.1 + 0.15);
+          
+          noise.start(audioContext.currentTime + i * 0.1);
+          noise.stop(audioContext.currentTime + i * 0.1 + noiseLength);
+        }
+      }
     } catch (e) {
       console.log("Audio playback failed:", e);
     }
@@ -103,58 +122,167 @@ const App: React.FC = () => {
   const playCelebrationSound = () => {
     try {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const notes = [
+        [261.63, 329.63, 392.00, 523.25, 659.25, 783.99],
+        [293.66, 369.99, 440.00, 587.33, 698.46, 880.00],
+        [349.23, 440.00, 523.25, 698.46, 880.00, 1046.50],
+        [392.00, 493.88, 587.33, 783.99, 987.77, 1174.66]
+      ];
       
-      // Create a series of notes for a celebratory sound
-      const notes = [392, 523.25, 659.25, 783.99, 1046.50]; // G4, C5, E5, G5, C6
-      
-      notes.forEach((freq, i) => {
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
+      notes.forEach((chordNotes, chordIndex) => {
+        chordNotes.forEach((freq, noteIndex) => {
+          const oscillator = audioContext.createOscillator();
+          const gainNode = audioContext.createGain();
+          const panner = audioContext.createStereoPanner();
+          
+          oscillator.connect(panner);
+          panner.connect(gainNode);
+          gainNode.connect(audioContext.destination);
+          
+          oscillator.type = ['sine', 'triangle'][Math.floor(Math.random() * 2)] as OscillatorType;
+          oscillator.frequency.value = freq;
+          
+          panner.pan.value = (noteIndex / chordNotes.length) * 2 - 1;
+          
+          const startTime = audioContext.currentTime + chordIndex * 0.25;
+          const noteDelay = noteIndex * 0.05;
+          
+          gainNode.gain.setValueAtTime(0, startTime + noteDelay);
+          gainNode.gain.linearRampToValueAtTime(
+            0.08 + (noteIndex / chordNotes.length) * 0.1, 
+            startTime + noteDelay + 0.05
+          );
+          gainNode.gain.exponentialRampToValueAtTime(
+            0.001, 
+            startTime + noteDelay + 0.5 + (chordNotes.length - noteIndex) * 0.1
+          );
+          
+          oscillator.start(startTime + noteDelay);
+          oscillator.stop(startTime + noteDelay + 0.8);
+          
+          if (noteIndex % 2 === 0) {
+            const tremoloFreq = 8 + Math.random() * 5;
+            const tremoloDepth = 0.2 + Math.random() * 0.2;
+            
+            for (let i = 0; i < 20; i++) {
+              const modulationTime = startTime + noteDelay + (i * (1/tremoloFreq));
+              const value = 0.08 * (1 - tremoloDepth * (i % 2));
+              gainNode.gain.setValueAtTime(value, modulationTime);
+            }
+          }
+        });
         
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-        
-        oscillator.type = 'sine';
-        oscillator.frequency.value = freq;
-        
-        gainNode.gain.setValueAtTime(0, audioContext.currentTime + i * 0.1);
-        gainNode.gain.linearRampToValueAtTime(0.2, audioContext.currentTime + i * 0.1 + 0.05);
-        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + i * 0.1 + 0.3);
-        
-        oscillator.start(audioContext.currentTime + i * 0.1);
-        oscillator.stop(audioContext.currentTime + i * 0.1 + 0.3);
+        if (chordIndex % 2 === 0) {
+          const noiseLength = 1.0;
+          const bufferSize = audioContext.sampleRate * noiseLength;
+          const noiseBuffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
+          const data = noiseBuffer.getChannelData(0);
+          
+          for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+          }
+          
+          const noise = audioContext.createBufferSource();
+          noise.buffer = noiseBuffer;
+          
+          const highpassFilter = audioContext.createBiquadFilter();
+          const gainNode = audioContext.createGain();
+          
+          noise.connect(highpassFilter);
+          highpassFilter.connect(gainNode);
+          gainNode.connect(audioContext.destination);
+          
+          highpassFilter.type = 'highpass';
+          highpassFilter.frequency.value = 8000;
+          
+          const startTime = audioContext.currentTime + chordIndex * 0.25;
+          gainNode.gain.setValueAtTime(0, startTime);
+          gainNode.gain.linearRampToValueAtTime(0.06, startTime + 0.01);
+          gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + 0.8);
+          
+          noise.start(startTime);
+          noise.stop(startTime + noiseLength);
+        }
       });
+      
+      setTimeout(() => {
+        const finalContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        
+        for (let i = 0; i < 10; i++) {
+          const osc = finalContext.createOscillator();
+          const gain = finalContext.createGain();
+          const filter = finalContext.createBiquadFilter();
+          
+          osc.connect(filter);
+          filter.connect(gain);
+          gain.connect(finalContext.destination);
+          
+          osc.type = ['sine', 'triangle', 'sawtooth'][Math.floor(Math.random() * 3)] as OscillatorType;
+          osc.frequency.value = 100 + i * 100 + Math.random() * 200;
+          
+          filter.type = 'bandpass';
+          filter.frequency.value = 500 + i * 300;
+          filter.Q.value = 1;
+          
+          gain.gain.setValueAtTime(0, finalContext.currentTime);
+          gain.gain.linearRampToValueAtTime(0.1, finalContext.currentTime + 0.05);
+          gain.gain.exponentialRampToValueAtTime(0.001, finalContext.currentTime + 0.2 + Math.random() * 0.3);
+          
+          osc.start(finalContext.currentTime);
+          osc.stop(finalContext.currentTime + 0.5);
+        }
+        
+        const bassOsc = finalContext.createOscillator();
+        const bassGain = finalContext.createGain();
+        const bassFilter = finalContext.createBiquadFilter();
+        
+        bassOsc.connect(bassFilter);
+        bassFilter.connect(bassGain);
+        bassGain.connect(finalContext.destination);
+        
+        bassOsc.type = 'sine';
+        bassOsc.frequency.setValueAtTime(150, finalContext.currentTime);
+        bassOsc.frequency.exponentialRampToValueAtTime(40, finalContext.currentTime + 0.8);
+        
+        bassFilter.type = 'lowpass';
+        bassFilter.frequency.value = 200;
+        bassFilter.Q.value = 10;
+        
+        bassGain.gain.setValueAtTime(0, finalContext.currentTime);
+        bassGain.gain.linearRampToValueAtTime(0.25, finalContext.currentTime + 0.05);
+        bassGain.gain.exponentialRampToValueAtTime(0.001, finalContext.currentTime + 0.8);
+        
+        bassOsc.start(finalContext.currentTime);
+        bassOsc.stop(finalContext.currentTime + 0.8);
+      }, 1200);
+      
     } catch (e) {
       console.log("Audio playback failed:", e);
     }
   };
   
-  // Function to play sound effects
   const playSoundEffects = () => {
     playFireworksSound();
-    
-    // Play celebration sound with slight delay
     setTimeout(() => {
       playCelebrationSound();
+      setTimeout(() => {
+        playFireworksSound();
+      }, 800);
+      setTimeout(() => {
+        playCelebrationSound();
+      }, 1500);
+      setTimeout(() => {
+        playFireworksSound();
+        playCelebrationSound();
+      }, 2800);
     }, 300);
   };
 
-  // Colors for lottery balls
-  const ballColors = ['#ff5252', '#ff4081', '#9c27b0', '#673ab7', '#3f51b5', '#2196f3'];
-  
-  // Generate some random numbers for the loading animation
   const getRandomBalls = () => {
     return Array.from({ length: 6 }, () => Math.floor(Math.random() * 49) + 1);
   };
 
-  // Generate fireworks particles
-  const fireworksCount = 80; // Increased from 30 to 80 firework explosions!
-  const fireworksColors = [
-    '#ff5252', '#ff4081', '#9c27b0', '#673ab7', '#3f51b5', '#2196f3', 
-    '#ffeb3b', '#ff9800', '#76ff03', '#f44336', '#e91e63', '#2196f3',
-    '#00bcd4', '#009688', '#4caf50', '#cddc39', '#ffc107', '#ff5722',
-    '#ffeb3b', '#ff9800', '#76ff03', '#f44336', '#e91e63', '#2196f3'
-  ];
+  const fireworksCount = 80;
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -163,7 +291,6 @@ const App: React.FC = () => {
       setSubmitted(false);
       setShowFireworks(false);
       
-      // Add a delay with a shuffling effect before showing the final numbers
       let shuffleCount = 0;
       const maxShuffles = 10;
       const shuffleInterval = setInterval(() => {
@@ -173,16 +300,12 @@ const App: React.FC = () => {
           setLoading(false);
           setSubmitted(true);
           
-          // MEGA EXTRAVAGANT fireworks show after a slight delay!
           setTimeout(() => {
-            console.log("🎆 LAUNCHING MEGA FIREWORKS EXTRAVAGANZA! 🎆");
             setShowFireworks(true);
-            playSoundEffects(); // Play sound effects along with fireworks
-            
-            // Keep the fireworks going for longer - real celebration!
+            playSoundEffects();
             setTimeout(() => {
               setShowFireworks(false);
-            }, 6000); // Double the duration to 6 seconds
+            }, 6000);
           }, 800);
         } else {
           setNumbers(getRandomBalls());
@@ -204,19 +327,18 @@ const App: React.FC = () => {
           height: '100%',
           pointerEvents: 'none',
           zIndex: 100,
-          background: 'rgba(0,0,0,0.05)', // Slight darkening of background
+          background: 'rgba(0,0,0,0.05)',
           overflow: 'hidden',
         }}>
-          {/* Main fireworks display */}
           {Array.from({ length: fireworksCount }).map((_, idx) => {
             const randomX = Math.random() * 100;
-            const randomY = Math.random() * 60 + 20; // Keep in upper 80% of screen
-            const randomScale = Math.random() * 1.5 + 0.5; // Much larger explosions 0.5-2.0
-            const randomDelay = Math.random() * 3; // Longer spread of delays for continuous effect
-            const randomDuration = 0.8 + Math.random() * 1.2; // Variable durations
+            const randomY = Math.random() * 60 + 20;
+            const randomScale = Math.random() * 1.5 + 0.5;
+            const randomDelay = Math.random() * 3;
+            const randomDuration = 0.8 + Math.random() * 1.2;
             const randomColor = fireworksColors[Math.floor(Math.random() * fireworksColors.length)];
-            const particleCount = 12 + Math.floor(Math.random() * 12); // 12-24 particles per explosion
-            const extraLarge = Math.random() > 0.8; // 20% chance of extra large explosion
+            const particleCount = 12 + Math.floor(Math.random() * 12);
+            const extraLarge = Math.random() > 0.8;
             
             return (
               <Box
@@ -250,12 +372,11 @@ const App: React.FC = () => {
                   }
                 }}
               >
-                {/* Generate additional particles for each firework */}
                 {Array.from({ length: particleCount }).map((_, particleIdx) => {
                   const angle = (particleIdx / particleCount) * Math.PI * 2;
-                  const distance = 40 + Math.random() * 80; // Longer particle trails
-                  const particleSize = 1 + Math.random() * 4; // Larger particles
-                  const particleDelay = randomDelay + Math.random() * 0.3; // Slight variation in particle timing
+                  const distance = 40 + Math.random() * 80;
+                  const particleSize = 1 + Math.random() * 4;
+                  const particleDelay = randomDelay + Math.random() * 0.3;
                   const particleColor = Math.random() > 0.3 ? randomColor : fireworksColors[Math.floor(Math.random() * fireworksColors.length)];
                   
                   return (
@@ -289,8 +410,6 @@ const App: React.FC = () => {
                     />
                   );
                 })}
-
-                {/* Create sparkle effect on large explosions */}
                 {extraLarge && Array.from({ length: 8 }).map((_, sparkleIdx) => {
                   const sparkleDelay = randomDelay + 0.1 + Math.random() * 0.3;
                   const sparkleDistance = 15 + Math.random() * 25;
@@ -330,8 +449,6 @@ const App: React.FC = () => {
               </Box>
             );
           })}
-
-          {/* Falling confetti effect */}
           {Array.from({ length: 100 }).map((_, idx) => {
             const randomX = Math.random() * 100;
             const randomDelay = Math.random() * 2;
@@ -370,8 +487,6 @@ const App: React.FC = () => {
               />
             );
           })}
-
-          {/* Flash effect */}
           <Box
             sx={{
               position: 'absolute',
@@ -397,20 +512,38 @@ const App: React.FC = () => {
           display: 'flex', 
           flexDirection: 'column',
           justifyContent: 'center',
-          alignItems: 'center', // Add this to center horizontally
+          alignItems: 'center',
           py: 4,
-          mx: 'auto' // Ensure margin auto is applied
+          mx: 'auto',
+          position: 'relative',
         }}
       >
+        <Box sx={{ 
+          position: 'absolute', 
+          top: 16, 
+          right: 16, 
+          zIndex: 10 
+        }}>
+          <ThemeSwitcher 
+            currentTheme={currentTheme}
+            onThemeChange={handleThemeChange}
+          />
+        </Box>
+        
         <Paper 
           elevation={6} 
           sx={{ 
             p: 4,
             borderRadius: 4,
-            width: '100%', // Take full width of the container
-            maxWidth: 'sm', // Match the maxWidth from the Container
-            background: (theme) => `linear-gradient(135deg, ${theme.palette.background.paper} 0%, ${theme.palette.background.paper} 100%)`,
-            boxShadow: '0 10px 40px rgba(0,0,0,0.1)'
+            width: '100%',
+            maxWidth: 'sm',
+            background: (theme) => theme.palette.mode === 'dark' || ['synthwave', 'cyberpunk'].includes(currentTheme)
+              ? `linear-gradient(135deg, ${theme.palette.background.paper} 0%, rgba(0,0,0,0.3) 100%)`
+              : currentTheme === 'rainbow'
+                ? 'linear-gradient(135deg, rgba(255,0,0,0.1), rgba(255,127,0,0.1), rgba(255,255,0,0.1), rgba(0,255,0,0.1), rgba(0,0,255,0.1), rgba(75,0,130,0.1), rgba(148,0,211,0.1))'
+                : `linear-gradient(135deg, ${theme.palette.background.paper} 0%, ${theme.palette.background.paper} 100%)`,
+            boxShadow: '0 10px 40px rgba(0,0,0,0.1)',
+            transition: 'all 0.5s ease',
           }}
         >
           <Typography 
@@ -421,7 +554,14 @@ const App: React.FC = () => {
               mb: 3, 
               color: 'primary.main',
               fontWeight: 'bold',
-              textShadow: '0px 2px 4px rgba(0,0,0,0.1)'
+              textShadow: theme => 
+                currentTheme === 'synthwave' 
+                  ? '0 0 5px #ff71ce, 0 0 10px #01cdfe, 0 0 15px #05ffa1'
+                  : currentTheme === 'cyberpunk'
+                    ? '0 0 5px #fcee09, 0 0 10px #ff003c' 
+                    : currentTheme === 'rainbow'
+                      ? '0 0 1px rgba(0,0,0,0.5)'
+                      : '0px 2px 4px rgba(0,0,0,0.1)'
             }}
           >
             ✨ Lucky Lottery Numbers ✨
@@ -476,12 +616,35 @@ const App: React.FC = () => {
               sx={{ 
                 mt: 2, 
                 py: 1.5,
-                boxShadow: '0 4px 12px rgba(63, 81, 181, 0.4)',
+                boxShadow: theme => 
+                  currentTheme === 'synthwave'
+                    ? '0 0 10px #ff71ce, 0 0 20px #01cdfe'
+                    : currentTheme === 'cyberpunk'
+                      ? '0 0 10px #fcee09, 0 0 20px #ff003c'
+                      : '0 4px 12px rgba(63, 81, 181, 0.4)',
                 '&:hover': {
-                  boxShadow: '0 6px 14px rgba(63, 81, 181, 0.6)',
+                  boxShadow: theme =>
+                    currentTheme === 'synthwave'
+                      ? '0 0 15px #ff71ce, 0 0 30px #01cdfe'
+                      : currentTheme === 'cyberpunk'
+                        ? '0 0 15px #fcee09, 0 0 30px #ff003c'
+                        : '0 6px 14px rgba(63, 81, 181, 0.6)',
                   transform: 'translateY(-2px)'
                 },
-                transition: 'all 0.3s ease'
+                transition: 'all 0.3s ease',
+                background: theme => 
+                  currentTheme === 'rainbow'
+                    ? 'linear-gradient(90deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #8b00ff)'
+                    : undefined,
+                backgroundSize: '200% auto',
+                animation: theme => 
+                  currentTheme === 'rainbow' 
+                    ? 'rainbow 3s linear infinite'
+                    : undefined,
+                '@keyframes rainbow': {
+                  '0%': { backgroundPosition: '0% 50%' },
+                  '100%': { backgroundPosition: '200% 50%' },
+                }
               }}
             >
               {loading ? 'Shuffling Numbers...' : 'Generate My Lucky Numbers'}
@@ -506,7 +669,16 @@ const App: React.FC = () => {
                 variant="h6" 
                 align="center" 
                 gutterBottom
-                sx={{ mb: 3, fontWeight: 500 }}
+                sx={{ 
+                  mb: 3, 
+                  fontWeight: 500,
+                  textShadow: theme => 
+                    currentTheme === 'synthwave' 
+                      ? '0 0 5px #ff71ce'
+                      : currentTheme === 'cyberpunk'
+                        ? '0 0 5px #fcee09'
+                        : 'none'
+                }}
               >
                 {loading ? 'Shuffling Your Numbers...' : 'Your Personal Lucky Numbers:'}
               </Typography>
@@ -526,7 +698,12 @@ const App: React.FC = () => {
                         color: 'white',
                         fontSize: 24,
                         fontWeight: 'bold',
-                        boxShadow: '0 4px 10px rgba(0,0,0,0.2)',
+                        boxShadow: theme => 
+                          currentTheme === 'synthwave'
+                            ? `0 0 10px ${ballColors[idx % ballColors.length]}`
+                            : currentTheme === 'cyberpunk'
+                              ? `0 0 15px ${ballColors[idx % ballColors.length]}`
+                              : '0 4px 10px rgba(0,0,0,0.2)',
                         transition: 'all 0.3s ease',
                         animation: loading 
                           ? `${idx % 2 === 0 ? 'rumble1' : 'rumble2'} 0.5s infinite` 
@@ -560,7 +737,12 @@ const App: React.FC = () => {
                         },
                         '&:hover': {
                           transform: 'scale(1.1)',
-                          boxShadow: '0 6px 14px rgba(0,0,0,0.3)',
+                          boxShadow: theme =>
+                            currentTheme === 'synthwave'
+                              ? `0 0 15px ${ballColors[idx % ballColors.length]}, 0 0 30px ${ballColors[idx % ballColors.length]}`
+                              : currentTheme === 'cyberpunk'
+                                ? `0 0 20px ${ballColors[idx % ballColors.length]}`
+                                : '0 6px 14px rgba(0,0,0,0.3)',
                         }
                       }}
                     >
