@@ -1,8 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Container, Box, Typography, TextField, Button, Paper, Grid,
-  ThemeProvider, createTheme, CssBaseline, useMediaQuery
+  ThemeProvider, createTheme, CssBaseline, useMediaQuery,
+  Drawer, IconButton, Slider, FormControlLabel, Switch, Tooltip
 } from '@mui/material';
+// Need to add some icons
+import VolumeUpIcon from '@mui/icons-material/VolumeUp';
+import CloseIcon from '@mui/icons-material/Close';
+import MusicNoteIcon from '@mui/icons-material/MusicNote';
+import SurroundSoundIcon from '@mui/icons-material/SurroundSound';
 import { getThemeOptions, getBallColors, getFireworksColors, ThemeType } from './themes/themes';
 import ThemeSwitcher from './themes/ThemeSwitcher';
 
@@ -46,50 +52,142 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [showFireworks, setShowFireworks] = useState(false);
   
+  // Sound settings state
+  const [soundSettingsOpen, setSoundSettingsOpen] = useState(false);
+  const [soundVolume, setSoundVolume] = useState(0.7);
+  const [soundEffectsEnabled, setSoundEffectsEnabled] = useState(true);
+  const [explosionIntensity, setExplosionIntensity] = useState(1.0);
+  const [melodicIntensity, setMelodicIntensity] = useState(1.0);
+  const [soundPanning, setSoundPanning] = useState(true);
+  const [chaosLevel, setChaosLevel] = useState(0.0); // New state for chaos slider
+  
   const ballColors = getBallColors(currentTheme, prefersDarkMode);
   const fireworksColors = getFireworksColors(currentTheme, prefersDarkMode);
   
+  // Modify the sound functions to use the settings
   const playFireworksSound = () => {
+    if (!soundEffectsEnabled) return;
+    
     try {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      for (let i = 0; i < 5; i++) {
+      
+      // Apply chaos to number of explosions (5-12 based on chaos level)
+      const explosionCount = 5 + Math.floor(chaosLevel * 7);
+      
+      for (let i = 0; i < explosionCount; i++) {
         const oscillator = audioContext.createOscillator();
         const gainNode = audioContext.createGain();
         const panner = audioContext.createStereoPanner();
         const filter = audioContext.createBiquadFilter();
         
-        oscillator.connect(filter);
+        // Add a distortion effect when chaos is high
+        let distortion = null;
+        if (chaosLevel > 0.5) {
+          distortion = audioContext.createWaveShaper();
+          const distortionAmount = chaosLevel * 100;
+          
+          // Create distortion curve
+          const curve = new Float32Array(audioContext.sampleRate);
+          for (let j = 0; j < audioContext.sampleRate; j++) {
+            const x = j * 2 / audioContext.sampleRate - 1;
+            curve[j] = (Math.PI + distortionAmount) * x / (Math.PI + distortionAmount * Math.abs(x));
+          }
+          
+          distortion.curve = curve;
+          oscillator.connect(distortion);
+          distortion.connect(filter);
+        } else {
+          oscillator.connect(filter);
+        }
+        
         filter.connect(panner);
         panner.connect(gainNode);
         gainNode.connect(audioContext.destination);
         
-        oscillator.type = ['sine', 'triangle', 'sawtooth', 'square'][Math.floor(Math.random() * 4)] as OscillatorType;
-        const baseFreq = 80 + Math.random() * 120;
-        oscillator.frequency.setValueAtTime(baseFreq * 2, audioContext.currentTime + i * 0.1);
-        oscillator.frequency.exponentialRampToValueAtTime(baseFreq * 0.5, audioContext.currentTime + i * 0.1 + 0.4);
+        // Chaos affects oscillator type selection
+        const oscillatorTypes: OscillatorType[] = ['sine', 'triangle', 'sawtooth', 'square'];
+        // Higher chaos = more likely to pick more aggressive waveforms
+        const typeIndex = chaosLevel > 0.7 ? 
+          Math.floor(Math.random() * 2) + 2 : // More likely sawtooth/square at high chaos
+          Math.floor(Math.random() * 4);
+        oscillator.type = oscillatorTypes[typeIndex];
         
-        filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(800 + Math.random() * 1000, audioContext.currentTime + i * 0.1);
-        filter.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + i * 0.1 + 0.5);
-        filter.Q.value = 5 + Math.random() * 10;
+        // Chaos affects frequency range
+        const chaosFreqMultiplier = 1 + (chaosLevel * 3); // 1-4x frequency range with chaos
+        const baseFreq = (80 + Math.random() * 120) * (1 + (chaosLevel * (Math.random() - 0.5) * 2));
         
-        panner.pan.setValueAtTime((Math.random() * 2 - 1), audioContext.currentTime + i * 0.1);
+        // Chaos affects timing - more random starts at high chaos
+        const timeOffset = i * 0.1 * (1 - chaosLevel * 0.7) + (chaosLevel * Math.random() * 0.5);
         
-        gainNode.gain.setValueAtTime(0.01, audioContext.currentTime + i * 0.1);
-        gainNode.gain.exponentialRampToValueAtTime(0.1 + Math.random() * 0.15, audioContext.currentTime + i * 0.1 + 0.05);
-        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + i * 0.1 + 0.4 + Math.random() * 0.3);
+        oscillator.frequency.setValueAtTime(baseFreq * 2 * chaosFreqMultiplier, audioContext.currentTime + timeOffset);
+        oscillator.frequency.exponentialRampToValueAtTime(
+          baseFreq * 0.5, 
+          audioContext.currentTime + timeOffset + 0.4 * (1 + chaosLevel)
+        );
         
-        oscillator.start(audioContext.currentTime + i * 0.1);
-        oscillator.stop(audioContext.currentTime + i * 0.1 + 0.8);
+        // Chaos affects filter characteristics
+        filter.type = chaosLevel > 0.6 ? 
+          (Math.random() > 0.5 ? 'bandpass' : 'highpass') : 
+          'lowpass';
         
-        if (i % 2 === 0) {
-          const noiseLength = 0.2;
+        const filterFreqStart = 800 + Math.random() * 1000 * (1 + chaosLevel * 5);
+        filter.frequency.setValueAtTime(filterFreqStart, audioContext.currentTime + timeOffset);
+        filter.frequency.exponentialRampToValueAtTime(
+          100 * (1 + chaosLevel * 3), 
+          audioContext.currentTime + timeOffset + 0.5
+        );
+        
+        // Chaos affects filter resonance
+        filter.Q.value = 5 + Math.random() * 10 * (1 + chaosLevel * 2);
+        
+        // Apply sound panning setting with chaos affecting panning range
+        const panningAmount = soundPanning ? (Math.random() * 2 - 1) * (1 + chaosLevel * 0.5) : 0;
+        // Clamp panning between -1 and 1
+        panner.pan.setValueAtTime(
+          Math.max(-1, Math.min(1, panningAmount)),
+          audioContext.currentTime + timeOffset
+        );
+        
+        // Apply volume and intensity settings with chaos affecting dynamics
+        const randomVolumeFactor = 0.1 + Math.random() * 0.15 * (1 + chaosLevel);
+        const calculatedGain = soundVolume * randomVolumeFactor * explosionIntensity;
+        
+        // Chaos affects attack and release times
+        const attackTime = chaosLevel > 0.5 ? 
+          0.01 + Math.random() * 0.1 * chaosLevel : 
+          0.05;
+          
+        const releaseTime = 0.4 + Math.random() * 0.3 * (1 + chaosLevel * 2);
+        
+        gainNode.gain.setValueAtTime(0.01, audioContext.currentTime + timeOffset);
+        gainNode.gain.exponentialRampToValueAtTime(
+          calculatedGain, 
+          audioContext.currentTime + timeOffset + attackTime
+        );
+        gainNode.gain.exponentialRampToValueAtTime(
+          0.001, 
+          audioContext.currentTime + timeOffset + releaseTime
+        );
+        
+        // Chaos affects sound duration
+        const duration = 0.8 * (1 + chaosLevel * 1.5);
+        oscillator.start(audioContext.currentTime + timeOffset);
+        oscillator.stop(audioContext.currentTime + timeOffset + duration);
+        
+        // Add noise bursts with increasing chaos
+        if (i % 2 === 0 || chaosLevel > 0.3) {
+          const noiseLength = 0.2 * (1 + chaosLevel);
           const bufferSize = audioContext.sampleRate * noiseLength;
           const noiseBuffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
           const data = noiseBuffer.getChannelData(0);
           
+          // Chaos affects noise character
           for (let j = 0; j < bufferSize; j++) {
-            data[j] = Math.random() * 2 - 1;
+            // Higher chaos = more extreme noise values
+            const noiseFactor = chaosLevel > 0.7 ? 
+              2.5 : // More extreme at high chaos
+              2;
+            data[j] = (Math.random() * noiseFactor - noiseFactor/2);
           }
           
           const noise = audioContext.createBufferSource();
@@ -98,21 +196,88 @@ const App: React.FC = () => {
           const noiseFilter = audioContext.createBiquadFilter();
           const noiseGain = audioContext.createGain();
           
-          noise.connect(noiseFilter);
+          // Add resonance to noise at high chaos
+          if (chaosLevel > 0.6) {
+            const resonanceFilter = audioContext.createBiquadFilter();
+            resonanceFilter.type = 'peaking';
+            resonanceFilter.frequency.value = 1000 + Math.random() * 3000;
+            resonanceFilter.Q.value = 15 + chaosLevel * 20;
+            resonanceFilter.gain.value = 10 + chaosLevel * 15;
+            
+            noise.connect(resonanceFilter);
+            resonanceFilter.connect(noiseFilter);
+          } else {
+            noise.connect(noiseFilter);
+          }
+          
           noiseFilter.connect(noiseGain);
           noiseGain.connect(audioContext.destination);
           
-          noiseFilter.type = 'bandpass';
-          noiseFilter.frequency.value = 300 + Math.random() * 1000;
-          noiseFilter.Q.value = 1;
+          // Chaos affects noise filter type
+          noiseFilter.type = chaosLevel > 0.5 ? 
+            ['bandpass', 'highpass', 'lowpass'][Math.floor(Math.random() * 3)] as BiquadFilterType : 
+            'bandpass';
+            
+          // Chaos affects filter frequency
+          noiseFilter.frequency.value = 300 + Math.random() * 1000 * (1 + chaosLevel * 4);
+          noiseFilter.Q.value = 1 + chaosLevel * 10;
           
-          noiseGain.gain.setValueAtTime(0, audioContext.currentTime + i * 0.1);
-          noiseGain.gain.linearRampToValueAtTime(0.1 + Math.random() * 0.15, audioContext.currentTime + i * 0.1 + 0.01);
-          noiseGain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + i * 0.1 + 0.15);
+          // Apply volume and intensity settings to noise with chaos
+          const noiseCalculatedGain = soundVolume * (0.1 + Math.random() * 0.15 * (1 + chaosLevel * 2)) * explosionIntensity;
           
-          noise.start(audioContext.currentTime + i * 0.1);
-          noise.stop(audioContext.currentTime + i * 0.1 + noiseLength);
+          noiseGain.gain.setValueAtTime(0, audioContext.currentTime + timeOffset);
+          noiseGain.gain.linearRampToValueAtTime(
+            noiseCalculatedGain, 
+            audioContext.currentTime + timeOffset + 0.01
+          );
+          noiseGain.gain.exponentialRampToValueAtTime(
+            0.001, 
+            audioContext.currentTime + timeOffset + 0.15 * (1 + chaosLevel)
+          );
+          
+          noise.start(audioContext.currentTime + timeOffset);
+          noise.stop(audioContext.currentTime + timeOffset + noiseLength);
         }
+      }
+      
+      // Add extra chaotic elements at high chaos levels
+      if (chaosLevel > 0.8) {
+        // Create a reversed cymbal crash effect
+        const reverseCrashLength = 1.5;
+        const reverseCrashBuffer = audioContext.createBuffer(1, audioContext.sampleRate * reverseCrashLength, audioContext.sampleRate);
+        const reverseCrashData = reverseCrashBuffer.getChannelData(0);
+        
+        for (let i = 0; i < reverseCrashData.length; i++) {
+          // Exponential decay from end to start (will be played in reverse)
+          const amplitude = Math.pow(i / reverseCrashData.length, 2) * 0.5;
+          reverseCrashData[i] = (Math.random() * 2 - 1) * amplitude;
+        }
+        
+        const reverseCrash = audioContext.createBufferSource();
+        reverseCrash.buffer = reverseCrashBuffer;
+        
+        const crashFilter = audioContext.createBiquadFilter();
+        const crashGain = audioContext.createGain();
+        
+        reverseCrash.connect(crashFilter);
+        crashFilter.connect(crashGain);
+        crashGain.connect(audioContext.destination);
+        
+        crashFilter.type = 'highpass';
+        crashFilter.frequency.value = 2000;
+        
+        crashGain.gain.setValueAtTime(0, audioContext.currentTime);
+        crashGain.gain.linearRampToValueAtTime(
+          soundVolume * 0.2 * explosionIntensity, 
+          audioContext.currentTime + 0.2
+        );
+        crashGain.gain.exponentialRampToValueAtTime(
+          0.001, 
+          audioContext.currentTime + 1.5
+        );
+        
+        reverseCrash.playbackRate.value = 1 + chaosLevel;
+        reverseCrash.start(audioContext.currentTime + 0.5);
       }
     } catch (e) {
       console.log("Audio playback failed:", e);
@@ -120,84 +285,181 @@ const App: React.FC = () => {
   };
   
   const playCelebrationSound = () => {
+    if (!soundEffectsEnabled) return;
+    
     try {
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const notes = [
-        [261.63, 329.63, 392.00, 523.25, 659.25, 783.99],
-        [293.66, 369.99, 440.00, 587.33, 698.46, 880.00],
-        [349.23, 440.00, 523.25, 698.46, 880.00, 1046.50],
-        [392.00, 493.88, 587.33, 783.99, 987.77, 1174.66]
-      ];
+
+      // Chaos affects the note selection - potentially wilder or more dissonant at high chaos
+      const notes = chaosLevel > 0.7 ?
+        // More dissonant note choices at high chaos
+        [
+          [261.63, 311.13, 392.00, 466.16, 622.25, 783.99],
+          [277.18, 369.99, 415.30, 554.37, 698.46, 932.33],
+          [349.23, 415.30, 523.25, 622.25, 880.00, 1046.50],
+          [392.00, 466.16, 587.33, 698.46, 932.33, 1174.66]
+        ] :
+        // Standard harmonious chord progression
+        [
+          [261.63, 329.63, 392.00, 523.25, 659.25, 783.99],
+          [293.66, 369.99, 440.00, 587.33, 698.46, 880.00],
+          [349.23, 440.00, 523.25, 698.46, 880.00, 1046.50],
+          [392.00, 493.88, 587.33, 783.99, 987.77, 1174.66]
+        ];
+      
+      // Chaos affects the chord progression timing
+      const chordTiming = 0.25 * (1 + chaosLevel * (Math.random() > 0.5 ? 0.5 : -0.3));
+      const noteTiming = 0.05 * (1 + chaosLevel * (Math.random() > 0.5 ? 0.8 : -0.3));
       
       notes.forEach((chordNotes, chordIndex) => {
-        chordNotes.forEach((freq, noteIndex) => {
+        // Chaos affects which notes are played in each chord
+        const notesToPlay = chaosLevel > 0.5 ?
+          // At high chaos, randomly skip some notes for more unpredictable patterns
+          chordNotes.filter(() => Math.random() > chaosLevel * 0.3) :
+          chordNotes;
+        
+        notesToPlay.forEach((freq, noteIndex) => {
           const oscillator = audioContext.createOscillator();
           const gainNode = audioContext.createGain();
           const panner = audioContext.createStereoPanner();
           
-          oscillator.connect(panner);
+          // Apply chaos to oscillator routing
+          if (chaosLevel > 0.8 && Math.random() > 0.7) {
+            // Add distortion to some notes at high chaos
+            const distortion = audioContext.createWaveShaper();
+            const curve = new Float32Array(audioContext.sampleRate);
+            for (let i = 0; i < audioContext.sampleRate; i++) {
+              const x = i * 2 / audioContext.sampleRate - 1;
+              curve[i] = Math.max(-1, Math.min(1, x * 3 * (1 + chaosLevel)));
+            }
+            distortion.curve = curve;
+            
+            oscillator.connect(distortion);
+            distortion.connect(panner);
+          } else {
+            oscillator.connect(panner);
+          }
+          
           panner.connect(gainNode);
           gainNode.connect(audioContext.destination);
           
-          oscillator.type = ['sine', 'triangle'][Math.floor(Math.random() * 2)] as OscillatorType;
-          oscillator.frequency.value = freq;
+          // Chaos affects oscillator type
+          const oscillatorTypes: OscillatorType[] = ['sine', 'triangle', 'sawtooth', 'square'];
+          oscillator.type = chaosLevel > 0.6 ?
+            oscillatorTypes[Math.floor(Math.random() * oscillatorTypes.length)] :
+            ['sine', 'triangle'][Math.floor(Math.random() * 2)] as OscillatorType;
           
-          panner.pan.value = (noteIndex / chordNotes.length) * 2 - 1;
+          // Chaos affects frequency - add slight detuning at higher chaos
+          const detune = chaosLevel > 0.4 ? (Math.random() * 2 - 1) * chaosLevel * 30 : 0;
+          oscillator.frequency.value = freq * (1 + detune/1200); // Convert cents to frequency ratio
           
-          const startTime = audioContext.currentTime + chordIndex * 0.25;
-          const noteDelay = noteIndex * 0.05;
+          // Apply sound panning with chaos affecting the stereo width
+          const panRange = 1 + chaosLevel * 0.5; // Wider stereo at high chaos
+          panner.pan.value = soundPanning ? 
+            Math.max(-1, Math.min(1, ((noteIndex / notesToPlay.length) * 2 - 1) * panRange)) : 
+            0;
+          
+          // Chaos affects timing of notes - more random at high chaos
+          const randomOffset = chaosLevel > 0.6 ? (Math.random() * chaosLevel * 0.2) : 0;
+          const startTime = audioContext.currentTime + chordIndex * chordTiming;
+          const noteDelay = noteIndex * noteTiming + randomOffset;
+          
+          // Apply volume and melodic intensity with chaos affecting dynamics
+          const dynamicVariation = 1 + (chaosLevel * (Math.random() - 0.5) * 0.6);
+          const calculatedGain = soundVolume * 
+            (0.08 + (noteIndex / notesToPlay.length) * 0.1) * 
+            melodicIntensity * 
+            dynamicVariation;
+          
+          // Chaos affects envelope shape
+          const attackTime = 0.05 * (1 + chaosLevel * (Math.random() * 0.6));
+          const releaseTime = 0.5 + (chaosLevel > 0.7 ? 
+            Math.random() * chaosLevel * 0.8 : 
+            (notesToPlay.length - noteIndex) * 0.1);
           
           gainNode.gain.setValueAtTime(0, startTime + noteDelay);
           gainNode.gain.linearRampToValueAtTime(
-            0.08 + (noteIndex / chordNotes.length) * 0.1, 
-            startTime + noteDelay + 0.05
+            calculatedGain, 
+            startTime + noteDelay + attackTime
           );
+          
+          // Add wobble/vibrato at high chaos levels
+          if (chaosLevel > 0.5 && Math.random() > 0.6) {
+            const vibratoRate = 4 + Math.random() * 8 * chaosLevel;
+            const vibratoDepth = 10 * chaosLevel;
+            
+            for (let i = 0; i < 20; i++) {
+              const vibratoTime = startTime + noteDelay + attackTime + (i / vibratoRate);
+              if (vibratoTime < startTime + noteDelay + releaseTime - 0.05) {
+                const vibratoValue = Math.sin(i * Math.PI * 2 / 5) * vibratoDepth;
+                oscillator.frequency.setValueAtTime(
+                  freq * (1 + vibratoValue/1200), 
+                  vibratoTime
+                );
+              }
+            }
+          }
+          
           gainNode.gain.exponentialRampToValueAtTime(
             0.001, 
-            startTime + noteDelay + 0.5 + (chordNotes.length - noteIndex) * 0.1
+            startTime + noteDelay + releaseTime
           );
           
           oscillator.start(startTime + noteDelay);
-          oscillator.stop(startTime + noteDelay + 0.8);
+          oscillator.stop(startTime + noteDelay + releaseTime + 0.1);
           
-          if (noteIndex % 2 === 0) {
-            const tremoloFreq = 8 + Math.random() * 5;
-            const tremoloDepth = 0.2 + Math.random() * 0.2;
+          // Add tremolo effect to some notes, more likely at high chaos
+          if ((noteIndex % 2 === 0 || (chaosLevel > 0.4 && Math.random() > 0.5))) {
+            const tremoloFreq = 8 + Math.random() * 5 * (1 + chaosLevel);
+            const tremoloDepth = 0.2 + Math.random() * 0.2 * (1 + chaosLevel);
             
             for (let i = 0; i < 20; i++) {
               const modulationTime = startTime + noteDelay + (i * (1/tremoloFreq));
-              const value = 0.08 * (1 - tremoloDepth * (i % 2));
-              gainNode.gain.setValueAtTime(value, modulationTime);
+              if (modulationTime < startTime + noteDelay + releaseTime - 0.05) {
+                const value = calculatedGain * (1 - tremoloDepth * (i % 2));
+                gainNode.gain.setValueAtTime(value, modulationTime);
+              }
             }
           }
         });
         
-        if (chordIndex % 2 === 0) {
-          const noiseLength = 1.0;
+        // Add noise bursts between chords at higher chaos
+        if (chordIndex % 2 === 0 || (chaosLevel > 0.5 && Math.random() > 0.5)) {
+          const noiseLength = 1.0 * (1 + chaosLevel * 0.5);
           const bufferSize = audioContext.sampleRate * noiseLength;
           const noiseBuffer = audioContext.createBuffer(1, bufferSize, audioContext.sampleRate);
           const data = noiseBuffer.getChannelData(0);
           
+          // Chaos affects noise character
           for (let i = 0; i < bufferSize; i++) {
-            data[i] = Math.random() * 2 - 1;
+            data[i] = (Math.random() * 2 - 1) * (chaosLevel > 0.7 ? 1.5 : 1);
           }
           
           const noise = audioContext.createBufferSource();
           noise.buffer = noiseBuffer;
           
-          const highpassFilter = audioContext.createBiquadFilter();
+          const filterType = chaosLevel > 0.6 ? 
+            (Math.random() > 0.5 ? 'bandpass' : 'highpass') : 
+            'highpass';
+          
+          const noiseFilter = audioContext.createBiquadFilter();
+          noiseFilter.type = filterType as BiquadFilterType;
+          
+          // Chaos affects filter frequency
+          noiseFilter.frequency.value = 8000 - (chaosLevel > 0.5 ? Math.random() * 5000 * chaosLevel : 0);
+          noiseFilter.Q.value = 1 + chaosLevel * 5;
+          
           const gainNode = audioContext.createGain();
           
-          noise.connect(highpassFilter);
-          highpassFilter.connect(gainNode);
+          noise.connect(noiseFilter);
+          noiseFilter.connect(gainNode);
           gainNode.connect(audioContext.destination);
           
-          highpassFilter.type = 'highpass';
-          highpassFilter.frequency.value = 8000;
+          const startTime = audioContext.currentTime + chordIndex * chordTiming;
+          const noiseVolume = 0.06 * soundVolume * (1 + chaosLevel * 0.5) * melodicIntensity;
           
-          const startTime = audioContext.currentTime + chordIndex * 0.25;
           gainNode.gain.setValueAtTime(0, startTime);
-          gainNode.gain.linearRampToValueAtTime(0.06, startTime + 0.01);
+          gainNode.gain.linearRampToValueAtTime(noiseVolume, startTime + 0.01);
           gainNode.gain.exponentialRampToValueAtTime(0.001, startTime + 0.8);
           
           noise.start(startTime);
@@ -205,33 +467,66 @@ const App: React.FC = () => {
         }
       });
       
+      // Add final burst at the end, more dramatic with high chaos
       setTimeout(() => {
         const finalContext = new (window.AudioContext || (window as any).webkitAudioContext)();
         
-        for (let i = 0; i < 10; i++) {
+        // Number of oscillators increases with chaos
+        const oscillatorCount = 10 + Math.floor(chaosLevel * 10);
+        
+        for (let i = 0; i < oscillatorCount; i++) {
           const osc = finalContext.createOscillator();
           const gain = finalContext.createGain();
           const filter = finalContext.createBiquadFilter();
+          const panner = finalContext.createStereoPanner();
           
           osc.connect(filter);
-          filter.connect(gain);
+          filter.connect(panner);
+          panner.connect(gain);
           gain.connect(finalContext.destination);
           
-          osc.type = ['sine', 'triangle', 'sawtooth'][Math.floor(Math.random() * 3)] as OscillatorType;
-          osc.frequency.value = 100 + i * 100 + Math.random() * 200;
+          // Chaos affects oscillator type
+          const oscTypes: OscillatorType[] = ['sine', 'triangle', 'sawtooth', 'square'];
+          osc.type = chaosLevel > 0.7 ?
+            oscTypes[Math.floor(Math.random() * oscTypes.length)] :
+            ['sine', 'triangle', 'sawtooth'][Math.floor(Math.random() * 3)] as OscillatorType;
           
-          filter.type = 'bandpass';
-          filter.frequency.value = 500 + i * 300;
-          filter.Q.value = 1;
+          // Chaos affects frequency spread
+          const freqRange = 200 * (1 + chaosLevel * 3);
+          osc.frequency.value = 100 + i * 100 + Math.random() * freqRange;
+          
+          // Chaos affects filter characteristics
+          filter.type = chaosLevel > 0.6 ?
+            ['bandpass', 'lowpass', 'highpass', 'peaking'][Math.floor(Math.random() * 4)] as BiquadFilterType :
+            'bandpass';
+            
+          filter.frequency.value = 500 + i * 300 * (1 + chaosLevel);
+          filter.Q.value = 1 + chaosLevel * 10;
+          
+          // Chaos affects stereo positioning
+          panner.pan.value = soundPanning ?
+            (Math.random() * 2 - 1) * (1 + chaosLevel * 0.2) :
+            0;
+          
+          // Chaos affects envelope
+          const attackTime = 0.05 * (1 + chaosLevel * 0.5);
+          const releaseTime = 0.2 + Math.random() * 0.3 * (1 + chaosLevel);
           
           gain.gain.setValueAtTime(0, finalContext.currentTime);
-          gain.gain.linearRampToValueAtTime(0.1, finalContext.currentTime + 0.05);
-          gain.gain.exponentialRampToValueAtTime(0.001, finalContext.currentTime + 0.2 + Math.random() * 0.3);
+          gain.gain.linearRampToValueAtTime(
+            soundVolume * 0.1 * melodicIntensity * (1 + chaosLevel * 0.3), 
+            finalContext.currentTime + attackTime
+          );
+          gain.gain.exponentialRampToValueAtTime(
+            0.001, 
+            finalContext.currentTime + releaseTime
+          );
           
           osc.start(finalContext.currentTime);
-          osc.stop(finalContext.currentTime + 0.5);
+          osc.stop(finalContext.currentTime + releaseTime + 0.1);
         }
         
+        // Add a final deep bass note, more intense at higher chaos
         const bassOsc = finalContext.createOscillator();
         const bassGain = finalContext.createGain();
         const bassFilter = finalContext.createBiquadFilter();
@@ -240,20 +535,76 @@ const App: React.FC = () => {
         bassFilter.connect(bassGain);
         bassGain.connect(finalContext.destination);
         
-        bassOsc.type = 'sine';
-        bassOsc.frequency.setValueAtTime(150, finalContext.currentTime);
-        bassOsc.frequency.exponentialRampToValueAtTime(40, finalContext.currentTime + 0.8);
+        // Chaos affects bass character
+        bassOsc.type = chaosLevel > 0.6 ? 'square' : 'sine';
         
+        const bassDuration = 0.8 * (1 + chaosLevel * 0.5);
+        const bassFreqStart = 150 - chaosLevel * 50;
+        const bassFreqEnd = 40 - chaosLevel * 10;
+        
+        bassOsc.frequency.setValueAtTime(bassFreqStart, finalContext.currentTime);
+        bassOsc.frequency.exponentialRampToValueAtTime(
+          bassFreqEnd, 
+          finalContext.currentTime + bassDuration
+        );
+        
+        // Chaos affects filter characteristics
         bassFilter.type = 'lowpass';
-        bassFilter.frequency.value = 200;
-        bassFilter.Q.value = 10;
+        bassFilter.frequency.value = 200 * (1 + chaosLevel * 2);
+        bassFilter.Q.value = 10 * (1 + chaosLevel * 2);
+        
+        // Chaos affects volume
+        const bassVolume = soundVolume * 0.25 * (1 + chaosLevel * 0.5) * melodicIntensity;
         
         bassGain.gain.setValueAtTime(0, finalContext.currentTime);
-        bassGain.gain.linearRampToValueAtTime(0.25, finalContext.currentTime + 0.05);
-        bassGain.gain.exponentialRampToValueAtTime(0.001, finalContext.currentTime + 0.8);
+        bassGain.gain.linearRampToValueAtTime(
+          bassVolume, 
+          finalContext.currentTime + 0.05
+        );
+        bassGain.gain.exponentialRampToValueAtTime(
+          0.001, 
+          finalContext.currentTime + bassDuration
+        );
         
         bassOsc.start(finalContext.currentTime);
-        bassOsc.stop(finalContext.currentTime + 0.8);
+        bassOsc.stop(finalContext.currentTime + bassDuration);
+        
+        // Add a chaotic crash at highest chaos
+        if (chaosLevel > 0.8) {
+          const crashNoise = finalContext.createBufferSource();
+          const crashBuffer = finalContext.createBuffer(1, finalContext.sampleRate * 1.5, finalContext.sampleRate);
+          const crashData = crashBuffer.getChannelData(0);
+          
+          for (let i = 0; i < crashData.length; i++) {
+            // Create a rapidly decaying noise
+            crashData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (finalContext.sampleRate * 0.3));
+          }
+          
+          crashNoise.buffer = crashBuffer;
+          
+          const crashFilter = finalContext.createBiquadFilter();
+          const crashGain = finalContext.createGain();
+          
+          crashNoise.connect(crashFilter);
+          crashFilter.connect(crashGain);
+          crashGain.connect(finalContext.destination);
+          
+          crashFilter.type = 'highpass';
+          crashFilter.frequency.value = 6000;
+          
+          crashGain.gain.setValueAtTime(0, finalContext.currentTime);
+          crashGain.gain.linearRampToValueAtTime(
+            soundVolume * 0.15 * melodicIntensity, 
+            finalContext.currentTime + 0.01
+          );
+          crashGain.gain.exponentialRampToValueAtTime(
+            0.001, 
+            finalContext.currentTime + 1.2
+          );
+          
+          crashNoise.start(finalContext.currentTime);
+          crashNoise.stop(finalContext.currentTime + 1.5);
+        }
       }, 1200);
       
     } catch (e) {
@@ -529,6 +880,168 @@ const App: React.FC = () => {
             onThemeChange={handleThemeChange}
           />
         </Box>
+        
+        {/* Sound Settings Button */}
+        <Box sx={{ 
+          position: 'absolute', 
+          top: 16, 
+          left: 16, 
+          zIndex: 10 
+        }}>
+          <Tooltip title="Sound Settings">
+            <IconButton 
+              onClick={() => setSoundSettingsOpen(true)}
+              sx={{ 
+                bgcolor: 'background.paper',
+                boxShadow: 2,
+                '&:hover': { 
+                  bgcolor: 'background.paper',
+                  transform: 'scale(1.05)'
+                },
+                transition: 'all 0.2s'
+              }}
+            >
+              <VolumeUpIcon />
+            </IconButton>
+          </Tooltip>
+        </Box>
+        
+        {/* Sound Settings Drawer */}
+        <Drawer
+          anchor="left"
+          open={soundSettingsOpen}
+          onClose={() => setSoundSettingsOpen(false)}
+        >
+          <Box sx={{ 
+            width: 300, 
+            p: 3,
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            <Box sx={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center', 
+              mb: 3 
+            }}>
+              <Typography variant="h6" component="div">
+                Sound Settings
+              </Typography>
+              <IconButton onClick={() => setSoundSettingsOpen(false)} edge="end">
+                <CloseIcon />
+              </IconButton>
+            </Box>
+            
+            <FormControlLabel
+              control={
+                <Switch 
+                  checked={soundEffectsEnabled}
+                  onChange={(e) => setSoundEffectsEnabled(e.target.checked)}
+                  color="primary"
+                />
+              }
+              label="Sound Effects"
+              sx={{ mb: 3 }}
+            />
+            
+            <Typography gutterBottom>
+              Master Volume
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+              <VolumeUpIcon sx={{ mr: 2, opacity: 0.7 }} />
+              <Slider
+                value={soundVolume}
+                onChange={(_, value) => setSoundVolume(value as number)}
+                min={0}
+                max={1}
+                step={0.01}
+                valueLabelDisplay="auto"
+                valueLabelFormat={(value) => `${Math.round(value * 100)}%`}
+                disabled={!soundEffectsEnabled}
+              />
+            </Box>
+            
+            <Typography gutterBottom>
+              Explosion Intensity
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+              <SurroundSoundIcon sx={{ mr: 2, opacity: 0.7 }} />
+              <Slider
+                value={explosionIntensity}
+                onChange={(_, value) => setExplosionIntensity(value as number)}
+                min={0.1}
+                max={2.0}
+                step={0.1}
+                valueLabelDisplay="auto"
+                valueLabelFormat={(value) => `${value.toFixed(1)}x`}
+                disabled={!soundEffectsEnabled}
+              />
+            </Box>
+            
+            <Typography gutterBottom>
+              Melodic Intensity
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+              <MusicNoteIcon sx={{ mr: 2, opacity: 0.7 }} />
+              <Slider
+                value={melodicIntensity}
+                onChange={(_, value) => setMelodicIntensity(value as number)}
+                min={0.1}
+                max={2.0}
+                step={0.1}
+                valueLabelDisplay="auto"
+                valueLabelFormat={(value) => `${value.toFixed(1)}x`}
+                disabled={!soundEffectsEnabled}
+              />
+            </Box>
+            
+            <FormControlLabel
+              control={
+                <Switch 
+                  checked={soundPanning}
+                  onChange={(e) => setSoundPanning(e.target.checked)}
+                  color="primary"
+                  disabled={!soundEffectsEnabled}
+                />
+              }
+              label="Stereo Sound (Panning)"
+              sx={{ mb: 2 }}
+            />
+            
+            {/* New Chaos Level Slider */}
+            <Typography gutterBottom>
+              Chaos Level
+            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+              <Slider
+                value={chaosLevel}
+                onChange={(_, value) => setChaosLevel(value as number)}
+                min={0}
+                max={1}
+                step={0.01}
+                valueLabelDisplay="auto"
+                valueLabelFormat={(value) => `${Math.round(value * 100)}%`}
+                disabled={!soundEffectsEnabled}
+              />
+            </Box>
+            
+            <Box sx={{ flexGrow: 1 }} />
+            
+            <Button 
+              variant="outlined" 
+              color="primary"
+              onClick={() => {
+                playSoundEffects();
+              }}
+              disabled={!soundEffectsEnabled}
+              fullWidth
+              sx={{ mt: 2 }}
+            >
+              Test Sound
+            </Button>
+          </Box>
+        </Drawer>
         
         <Paper 
           elevation={6} 
